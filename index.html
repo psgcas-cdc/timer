@@ -360,6 +360,7 @@
         let lastLapTime = 0;
         let lastLapStartTime = 0;
         let lastBeepMinute = -1;
+        let lastUpdateTime = 0;
 
         // DOM elements
         const display = document.querySelector('.timer-display');
@@ -383,11 +384,38 @@
         }
 
         function playBeep() {
+            // Play HTML audio file
             try {
                 beepSound.currentTime = 0;
-                beepSound.play().catch(e => console.log('Audio error:', e));
+                beepSound.play().catch(e => console.log('Audio play error:', e));
             } catch (e) {
                 console.log('Audio error:', e);
+            }
+
+            // Try Web Audio API for better background support
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.value = 800;
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.5);
+            } catch (e) {
+                console.log('Web Audio error:', e);
+            }
+
+            // Vibrate phone (200ms vibrate, 100ms pause, 200ms vibrate)
+            if (navigator.vibrate) {
+                navigator.vibrate([200, 100, 200]);
             }
         }
 
@@ -408,7 +436,13 @@
         }
 
         function tick() {
-            elapsedTime += 10;
+            const now = performance.now();
+            if (lastUpdateTime > 0) {
+                const delta = now - lastUpdateTime;
+                elapsedTime += delta;
+            }
+            lastUpdateTime = now;
+            
             updateDisplay();
             if (isRunning && !isPaused) {
                 animationId = requestAnimationFrame(tick);
@@ -420,6 +454,8 @@
             
             isRunning = true;
             isPaused = false;
+            lastUpdateTime = performance.now();
+            
             startBtn.disabled = true;
             pauseBtn.disabled = false;
             stopBtn.disabled = false;
@@ -435,9 +471,11 @@
             
             if (isPaused) {
                 pauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+                lastUpdateTime = 0;
                 if (animationId) cancelAnimationFrame(animationId);
             } else {
                 pauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                lastUpdateTime = performance.now();
                 tick();
             }
         }
@@ -447,6 +485,7 @@
             
             isRunning = false;
             isPaused = false;
+            lastUpdateTime = 0;
             elapsedTime = 0;
             lastLapTime = 0;
             lastLapStartTime = 0;
@@ -502,6 +541,14 @@
             clearBtn.disabled = true;
             renderLaps();
         }
+
+        // Keep timer running even when tab is hidden
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && isRunning && !isPaused && !animationId) {
+                lastUpdateTime = performance.now();
+                tick();
+            }
+        });
     </script>
 </body>
 </html>
